@@ -9,12 +9,15 @@ via_ir = true
 gas_reports = ["SpendPolicyModule", "AgentAccount", "AttestationVerifier"]
 fs_permissions = [{ access = "read", path = "./" }]
 
+# Poseidon2 in pure Solidity is ~10M gas/payment, so the default fuzz/invariant
+# budgets are modest. Deep fuzzing (make fuzz) raises runs; for very high run
+# counts switch the module to the Yul Poseidon2 variant (see docs/benchmarks).
 [profile.default.fuzz]
-runs = 10000
+runs = 256
 
 [profile.default.invariant]
-runs = 512
-depth = 100
+runs = 64
+depth = 32
 fail_on_revert = false
 
 [rpc_endpoints]

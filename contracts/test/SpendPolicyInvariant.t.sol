@@ -6,12 +6,16 @@ import {SpendPolicyModule} from "../src/SpendPolicyModule.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
 import {TestUSDC} from "../src/mocks/TestUSDC.sol";
 import {Mandate} from "../src/libraries/Mandate.sol";
+import {Field} from "../src/poseidon2/Field.sol";
+import {LibPoseidon2} from "../src/poseidon2/LibPoseidon2.sol";
 
 /// @dev Handler drives the module through arbitrary payment sequences from an
 ///      arbitrary caller. Every attempt re-signs with the live txCount, so the
 ///      handler models an honest relayer of a valid session key; the invariants
 ///      must still hold under any interleaving the fuzzer picks.
 contract Handler is Test {
+    using Field for Field.Type;
+
     SpendPolicyModule public module;
     AgentAccount public acct;
     TestUSDC public usdc;
@@ -45,7 +49,7 @@ contract Handler is Test {
 
     function _proof() internal view returns (bytes32[] memory p) {
         p = new bytes32[](1);
-        p[0] = keccak256(abi.encodePacked(sibling));
+        p[0] = bytes32(uint256(uint160(sibling)));
     }
 
     function _sign(uint256 amount, uint32 nonce) internal view returns (bytes memory) {
@@ -83,6 +87,8 @@ contract Handler is Test {
 }
 
 contract SpendPolicyInvariantTest is Test {
+    using Field for Field.Type;
+
     SpendPolicyModule internal module;
     AgentAccount internal acct;
     TestUSDC internal usdc;
@@ -107,9 +113,10 @@ contract SpendPolicyInvariantTest is Test {
         acct.setModule(address(module));
         usdc.mint(address(acct), 100_000_000e6);
 
-        bytes32 la = keccak256(abi.encodePacked(cptyA));
-        bytes32 lb = keccak256(abi.encodePacked(cptyB));
-        bytes32 root = la <= lb ? keccak256(abi.encodePacked(la, lb)) : keccak256(abi.encodePacked(lb, la));
+        uint256 la = uint256(uint160(cptyA));
+        uint256 lb = uint256(uint160(cptyB));
+        (uint256 lo, uint256 hi) = la <= lb ? (la, lb) : (lb, la);
+        bytes32 root = bytes32(LibPoseidon2.hash_2(Field.toField(lo), Field.toField(hi)).toUint256());
 
         Mandate.Data memory m = Mandate.Data({
             mandateId: mandateId,

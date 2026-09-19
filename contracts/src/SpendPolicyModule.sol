@@ -3,6 +3,8 @@ pragma solidity 0.8.24;
 
 import {ISpendPolicyModule} from "./interfaces/ISpendPolicyModule.sol";
 import {Mandate} from "./libraries/Mandate.sol";
+import {Field} from "./poseidon2/Field.sol";
+import {LibPoseidon2} from "./poseidon2/LibPoseidon2.sol";
 
 /// @title SpendPolicyModule
 /// @notice ERC-4337 validation module enforcing a spending mandate and building
@@ -19,7 +21,14 @@ import {Mandate} from "./libraries/Mandate.sol";
 ///      The commitment insertion is not separable from the accounting: both happen
 ///      in this one call, before the account performs the transfer. See CLAUDE.md.
 contract SpendPolicyModule is ISpendPolicyModule {
+    using Field for uint256;
+    using Field for Field.Type;
+
     uint8 internal constant TREE_DEPTH = 7; // 128 leaves per mandate period
+
+    /// @dev BN254 scalar field. Every input to Poseidon2 must be reduced mod this.
+    uint256 internal constant PRIME =
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 
     /// @dev EIP-712 domain, fixed at deployment.
     bytes32 private immutable _DOMAIN_SEPARATOR;
@@ -142,9 +151,8 @@ contract SpendPolicyModule is ISpendPolicyModule {
         if (wouldBe > m.totalCap) revert TotalCapExceeded(wouldBe, m.totalCap);
         if (s.txCount >= m.maxTxCount) revert TxCountExceeded();
 
-        // 3. counterparty allowlist
-        bytes32 leafHash = keccak256(abi.encodePacked(counterparty));
-        if (!_verifyProof(allowlistProof, m.allowlistRoot, leafHash)) {
+        // 3. counterparty allowlist (Poseidon2 sorted-pair, field-encoded address)
+        if (!_verifyAllowlist(allowlistProof, m.allowlistRoot, uint256(uint160(counterparty)))) {
             revert CounterpartyNotAllowed(counterparty);
         }
 
@@ -187,19 +195,45 @@ contract SpendPolicyModule is ISpendPolicyModule {
     }
 
     // --------------------------------------------------------------------- //
+    //  Hash views for off-chain tooling (indexer / prover)                  //
+    //  Exposed so the indexer reconstructs paths with the EXACT same hash   //
+    //  the module used, instead of a third, possibly-divergent impl.        //
+    // --------------------------------------------------------------------- //
+
+    function hashLeaf(uint256 amount, address counterparty, uint64 ts, bytes32 salt)
+        external
+        pure
+        returns (bytes32)
+    {
+        return _commit(amount, counterparty, ts, salt);
+    }
+
+    function hashPair(bytes32 a, bytes32 b) external pure returns (bytes32) {
+        return _hashPair(a, b);
+    }
+
+    function zeroSubtree(uint8 level) external pure returns (bytes32) {
+        return _zeros(level);
+    }
+
+    // --------------------------------------------------------------------- //
     //  Commitment tree (Phase 3)                                            //
     // --------------------------------------------------------------------- //
 
-    /// @dev Leaf commitment. Poseidon is the SNARK-friendly target (Phase 4);
-    ///      until the Poseidon hasher is wired in, keccak stands in so the tree
-    ///      logic is exercised. The circuit MUST use the same hash. See TODO below.
-    /// TODO(phase4): replace keccak with Poseidon(amount, counterparty, ts, salt).
+    /// @dev Leaf commitment = Poseidon2(amount, counterparty, timestamp, salt).
+    ///      Verified against the Noir circuit's Poseidon2 by test vector
+    ///      (test/Poseidon2Vector.t.sol). Every input is reduced mod the field.
     function _commit(uint256 amount, address counterparty, uint64 ts, bytes32 salt)
         internal
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encode(amount, counterparty, ts, salt));
+        Field.Type[] memory in4 = new Field.Type[](4);
+        in4[0] = (amount % PRIME).toField();
+        in4[1] = uint256(uint160(counterparty)).toField();
+        in4[2] = uint256(ts).toField();
+        in4[3] = (uint256(salt) % PRIME).toField();
+        return bytes32(LibPoseidon2.hash(in4, 4, false).toUint256());
     }
 
     /// @dev Salt is derived from module state, never from the caller (tripwire 4).
@@ -231,33 +265,35 @@ contract SpendPolicyModule is ISpendPolicyModule {
     //  Primitives                                                           //
     // --------------------------------------------------------------------- //
 
+    /// @dev Index-ordered Poseidon2 pair hash (matches the circuit's compute_root).
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
-        return keccak256(abi.encode(a, b));
+        return bytes32(LibPoseidon2.hash_2(uint256(a).toField(), uint256(b).toField()).toUint256());
     }
 
     /// @dev Empty-subtree hashes for depths 0..TREE_DEPTH. z(0)=0, z(k)=H(z(k-1),z(k-1)).
     function _zeros(uint8 level) internal pure returns (bytes32 z) {
         z = bytes32(0);
         for (uint8 i = 0; i < level; i++) {
-            z = keccak256(abi.encode(z, z));
+            z = _hashPair(z, z);
         }
     }
 
-    /// @dev Sorted-pair keccak Merkle proof verification (OZ-compatible layout,
-    ///      leaf pre-hashed by the caller).
-    function _verifyProof(bytes32[] calldata proof, bytes32 root, bytes32 leaf)
+    /// @dev Sorted-pair Poseidon2 allowlist proof (matches compute_allowlist_root).
+    ///      The leaf is the counterparty as a field element (uint160 of the address);
+    ///      sorting is by numeric value, which agrees with the circuit's a.lt(b)
+    ///      because all values are < PRIME.
+    function _verifyAllowlist(bytes32[] calldata proof, bytes32 root, uint256 leafField)
         internal
         pure
         returns (bool)
     {
-        bytes32 computed = leaf;
+        uint256 computed = leafField;
         for (uint256 i = 0; i < proof.length; i++) {
-            bytes32 p = proof[i];
-            computed = computed <= p
-                ? keccak256(abi.encodePacked(computed, p))
-                : keccak256(abi.encodePacked(p, computed));
+            uint256 p = uint256(proof[i]) % PRIME;
+            (uint256 lo, uint256 hi) = computed <= p ? (computed, p) : (p, computed);
+            computed = LibPoseidon2.hash_2(lo.toField(), hi.toField()).toUint256();
         }
-        return computed == root;
+        return bytes32(computed) == root;
     }
 
     function _hashTypedData(bytes32 structHash) internal view returns (bytes32) {

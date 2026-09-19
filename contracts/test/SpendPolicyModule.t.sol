@@ -7,10 +7,14 @@ import {ISpendPolicyModule} from "../src/interfaces/ISpendPolicyModule.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
 import {TestUSDC} from "../src/mocks/TestUSDC.sol";
 import {Mandate} from "../src/libraries/Mandate.sol";
+import {Field} from "../src/poseidon2/Field.sol";
+import {LibPoseidon2} from "../src/poseidon2/LibPoseidon2.sol";
 
 /// @notice Phase 1 test surface. The fuzz and invariant tests are the real safety
 ///         claim; the unit tests are the obvious cases.
 contract SpendPolicyModuleTest is Test {
+    using Field for Field.Type;
+
     SpendPolicyModule internal module;
     AgentAccount internal acct;
     TestUSDC internal usdc;
@@ -48,16 +52,17 @@ contract SpendPolicyModuleTest is Test {
     // ------------------------------------------------------------------ //
 
     function _leaf(address a) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(a));
+        return bytes32(uint256(uint160(a)));
     }
 
     function _root2(address a, address b) internal pure returns (bytes32) {
-        bytes32 la = _leaf(a);
-        bytes32 lb = _leaf(b);
-        return la <= lb ? keccak256(abi.encodePacked(la, lb)) : keccak256(abi.encodePacked(lb, la));
+        uint256 la = uint256(uint160(a));
+        uint256 lb = uint256(uint160(b));
+        (uint256 lo, uint256 hi) = la <= lb ? (la, lb) : (lb, la);
+        return bytes32(LibPoseidon2.hash_2(Field.toField(lo), Field.toField(hi)).toUint256());
     }
 
-    function _proofFor(address self, address sibling) internal pure returns (bytes32[] memory p) {
+    function _proofFor(address, address sibling) internal pure returns (bytes32[] memory p) {
         p = new bytes32[](1);
         p[0] = _leaf(sibling);
     }
