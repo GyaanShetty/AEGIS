@@ -1,0 +1,16 @@
+out/
+cache/
+broadcast/
+node_modules/
+lib/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+target/
+*.json.gz
+proofs/
+.DS_Store
