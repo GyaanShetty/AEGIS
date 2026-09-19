@@ -237,8 +237,14 @@ contract SpendPolicyModule is ISpendPolicyModule {
     }
 
     /// @dev Salt is derived from module state, never from the caller (tripwire 4).
+    ///      Deterministic in (module, mandateId, index) so the prover can
+    ///      reconstruct the leaf preimage off-chain — the agent still cannot
+    ///      influence it (it controls neither the module address, the mandateId,
+    ///      nor the sequential index). block.prevrandao is deliberately NOT used:
+    ///      it is unrecoverable off-chain and would make proving impossible, while
+    ///      adding no protection here (leaves are already distinct by index).
     function _salt(bytes32 mandateId, uint32 index) internal view returns (bytes32) {
-        return keccak256(abi.encode(address(this), mandateId, index, block.prevrandao));
+        return keccak256(abi.encode(address(this), mandateId, index));
     }
 
     /// @dev Append a leaf to the incremental Merkle tree and return the new root.
