@@ -27,10 +27,25 @@ library Mandate {
         "Mandate(bytes32 mandateId,address principal,address agentSessionKey,address token,uint256 totalCap,uint256 perTxCap,uint64 windowStart,uint64 windowEnd,bytes32 allowlistRoot,uint32 maxTxCount,uint64 revocationNonce)"
     );
 
-    /// @notice Hash the struct for EIP-712 signing.
-    /// @dev TODO(phase1): implement. Every field must be covered — an omitted
-    ///      field is a field an attacker can vary freely.
-    function hash(Data memory) internal pure returns (bytes32) {
-        revert("Mandate: not implemented");
+    /// @notice Hash the struct for EIP-712 signing (the `hashStruct` per EIP-712).
+    /// @dev Every field is covered — an omitted field is a field an attacker can
+    ///      vary freely. Field order matches TYPEHASH exactly.
+    function hash(Data memory m) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TYPEHASH,
+                m.mandateId,
+                m.principal,
+                m.agentSessionKey,
+                m.token,
+                m.totalCap,
+                m.perTxCap,
+                m.windowStart,
+                m.windowEnd,
+                m.allowlistRoot,
+                m.maxTxCount,
+                m.revocationNonce
+            )
+        );
     }
 }
