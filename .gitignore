@@ -16,3 +16,4 @@ proofs/
 .DS_Store
 circuits/**/target/
 circuits/**/proofs/
+out-zk/

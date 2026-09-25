@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity ^0.8.24;
 
 /// @title TestUSDC
 /// @notice Minimal 6-decimal ERC-20 with EIP-3009 transferWithAuthorization,

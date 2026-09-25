@@ -2,11 +2,37 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-solc = "0.8.24"
+solc = "0.8.27"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+# The bb-generated HonkVerifier compiles with the standard pipeline, not via_ir
+# (via_ir hits a Yul stack-too-deep in its generated code). The module needs
+# via_ir, so the verifier + its test live in the `zk` profile below.
+skip = ["src/verifier/**", "test/Attestation.t.sol"]
 gas_reports = ["SpendPolicyModule", "AgentAccount", "AttestationVerifier"]
+fs_permissions = [{ access = "read", path = "./" }]
+
+# Profile for the UltraHonk verifier: standard pipeline, no via_ir.
+#   FOUNDRY_PROFILE=zk forge test --match-path test/Attestation.t.sol
+[profile.zk]
+src = "src"
+out = "out-zk"
+libs = ["lib"]
+solc = "0.8.27"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+# Skip the via_ir-requiring module (and everything that imports it) — the
+# attestation test only needs the verifier.
+skip = [
+  "src/SpendPolicyModule.sol",
+  "src/AgentAccount.sol",
+  "script/**",
+  "test/SpendPolicyModule.t.sol",
+  "test/SpendPolicyInvariant.t.sol",
+  "test/Poseidon2Vector.t.sol",
+]
 fs_permissions = [{ access = "read", path = "./" }]
 
 # Poseidon2 in pure Solidity is ~10M gas/payment, so the default fuzz/invariant
