@@ -33,4 +33,30 @@ CLAUDE.md    standing instructions for Claude Code
 
 ## Status
 
-Scaffold. Contracts are interfaces and stubs with the intended behaviour documented in NatSpec. Nothing is implemented. That is deliberate — the stubs encode the design so the build has something to be checked against.
+All five phases implemented and tested. See `docs/08-benchmarks.md` for numbers.
+
+| Phase | What | Verification |
+|---|---|---|
+| 1 — Delegation + enforcement | `Mandate` EIP-712, `SpendPolicyModule`, `AgentAccount`, `TestUSDC` (EIP-3009) | 21 unit/fuzz + 2 invariants |
+| 2 — x402 loop | policy engine (holds the key), x402 server, key-free agent | 10 offline integration tests |
+| 3 — Commitments | on-chain Poseidon2 tree + allowlist, indexer root reconstruction | Poseidon2 matches Noir by test vector; indexer root == chain root on anvil |
+| 4 — ZK attestation | Noir circuit, UltraHonk proof, generated Solidity verifier, `AttestationVerifier` | 6 circuit tests (incl. 2 attacks); proof verifies on-chain @ ~2.66M gas |
+| 5 — Adversarial | prompt-injection escape attempts | 6 tests, all rejected |
+
+Toolchain: Foundry, Noir (`nargo` 1.0.0-rc.2 + `noir-lang/poseidon`), Barretenberg `bb` 5.0.0.
+
+**Key design decisions made during the build** (see commit messages and NatSpec):
+- Session signatures bind to the mandate's current `txCount` as an implicit, monotonic nonce (the fixed interface carries no nonce field).
+- The whole system agrees on **Poseidon2** (BN254) for both the commitment tree and the allowlist, on-chain and in-circuit; the Solidity impl is verified byte-for-byte against Noir test vectors before it is trusted.
+- Commitment salt is deterministic in `(module, mandateId, index)` — module-controlled (agent cannot influence it) yet reconstructable by the prover.
+- Pure-Solidity Poseidon2 costs ~10.6M gas/payment; a Yul/Huff variant ships in the vendored lib for production.
+
+### Reproduce
+
+```
+make build && make test          # contracts (Foundry)
+make offchain-test               # policy / x402 / adversarial (pytest)
+make circuit-test                # Noir circuit
+make compile-circuit && make prove && make verifier   # bb proving pipeline
+FOUNDRY_PROFILE=zk forge test --match-path test/Attestation.t.sol   # on-chain proof verification
+```
