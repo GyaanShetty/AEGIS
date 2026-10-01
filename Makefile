@@ -1,4 +1,4 @@
-.PHONY: help install build test fuzz gas circuit-test offchain-test compile-circuit prove verifier policy server agent
+.PHONY: help install build test fuzz gas circuit-test offchain-test compile-circuit prove verifier policy server agent dashboard
 
 help:
 	@echo "install         install foundry deps and python packages"
@@ -14,6 +14,7 @@ help:
 	@echo "policy          run policy engine on :8001"
 	@echo "server          run x402 resource server on :8002"
 	@echo "agent           run the agent"
+	@echo "dashboard       web UI on http://localhost:8000"
 
 offchain-test:
 	cd offchain && . .venv/bin/activate && python -m pytest -q
@@ -60,3 +61,7 @@ server:
 
 agent:
 	cd offchain && python -m agent.run
+
+# Dashboard UI on http://localhost:8000 (venv lives outside iCloud: see README)
+dashboard:
+	cd offchain && $(HOME)/.venvs/aegis/bin/python -m uvicorn dashboard.app:app --port 8000
